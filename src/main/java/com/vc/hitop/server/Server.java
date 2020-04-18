@@ -3,75 +3,62 @@ package com.vc.hitop.server;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
-import java.net.SocketTimeoutException;
+import java.net.SocketException;
 
 import com.vc.hitop.log.Log;
+import com.vc.hitop.util.ThreadedProcess;
 
-public class Server {
-	private final Thread thread = new Thread(this::receive, "server");
+public final class Server extends ThreadedProcess implements Runnable {
+	private final ConnectionManager connectionManager = new ConnectionManager();
+	private final ServerSocket server = new ServerSocket();
 	private final String host;
 	private final int port;
-	private final int timeout;
-	private final Dispatcher dispatcher;
+	private final int threads;
 
-	private boolean running = false;
-
-	private Server(String host, int port, int timeout, int threads) {
+	private Server(String host, int port, int threads) throws IOException {
+		super("server");
 		this.host = host;
 		this.port = port;
-		this.timeout = timeout;
-		this.dispatcher = new Dispatcher(threads);
+		this.threads = threads;
 	}
 
+	@Override
 	public void start() {
-		Log.info("Starting server...");
-		running = true;
-		thread.start();
-
-		while (!thread.isAlive()) {
-			try {
-				Thread.sleep(500);
-			} catch (InterruptedException ignore) {
-			}
-		}
-
-		Log.info("Server startup complete");
+		super.start();
+		connectionManager.start();
+		Log.info("Server started.");
 	}
 
-	public void stop() {
-		Log.info("Stopping server...");
-		running = false;
-		thread.interrupt();
-
+	@Override
+	public final void stop() {
 		try {
-			thread.join();
-		} catch (InterruptedException ignore) {
+			server.close();
+			super.stop();
+			connectionManager.stop();
+		} catch (Exception e) {
+			Log.info("ERROR: Something went wrong while stopping server: %s", e.toString());
 		}
-
-		dispatcher.stop();
-		Log.info("Server shutdown complete");
 	}
 
-	private void receive() {
-		try (ServerSocket server = new ServerSocket()) {
+	@Override
+	public final void run() {
+		try {
 			server.bind(new InetSocketAddress(host, port));
-			server.setSoTimeout(timeout);
-			Log.info("Server started at %s (Port: %d)", server.getInetAddress().toString(), server.getLocalPort());
-			while (running) {
+			while (!server.isClosed()) {
 				try {
-					dispatcher.process(server.accept());
-				} catch (SocketTimeoutException ignore) {
+					connectionManager.add(server.accept());
+				} catch (SocketException e) {
+					Log.info(e.getMessage());
 				}
 			}
 		} catch (IOException e) {
-			e.printStackTrace();
+			Log.info("An error occurred during server execution: %s", e.toString());
 		}
 	}
 
 	public static class Builder {
 		private String host = "localhost";
 		private int port = 8888;
-		private int timeout = 5000;
 		private int threads = 32;
 
 		public Builder withHost(String host) {
@@ -84,18 +71,13 @@ public class Server {
 			return this;
 		}
 
-		public Builder withTimeout(int timeout) {
-			this.timeout = timeout;
-			return this;
-		}
-
 		public Builder withThreads(int threads) {
 			this.threads = threads;
 			return this;
 		}
 
-		public Server build() {
-			return new Server(host, port, timeout, threads);
+		public Server build() throws IOException {
+			return new Server(host, port, threads);
 		}
 	}
 }

@@ -1,16 +1,13 @@
 package com.vc.hitop;
 
+import java.io.IOException;
+
 import com.vc.hitop.server.Server;
 
 public class Main {
-	private static final Server SERVER = new Server.Builder().build();
-
-	public static void main(String[] args) {
-		Runtime.getRuntime().addShutdownHook(new Thread(Main::onShutdown, "shutdown"));
-		SERVER.start();
-	}
-
-	private static void onShutdown() {
-		SERVER.stop();
+	public static void main(String[] args) throws IOException {
+		Server server = new Server.Builder().build();
+		Runtime.getRuntime().addShutdownHook(new Thread(server::stop, "shutdown"));
+		server.start();
 	}
 }
